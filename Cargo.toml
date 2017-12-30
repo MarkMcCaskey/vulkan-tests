@@ -1,0 +1,10 @@
+[package]
+name = "vulkano-test"
+version = "0.1.0"
+authors = ["MarkMcCaskey <rabidwaffle@gmail.com>"]
+
+[dependencies]
+vulkano = "0.7.2"
+vulkano-shader-derive = "*"
+winit = "0.7.0"
+vulkano-win = "0.7.2"
