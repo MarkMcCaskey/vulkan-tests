@@ -279,7 +279,7 @@ fn main() {
                       DynamicState {
                           line_width: None,
                           viewports: Some(vec![Viewport {
-                                                   origin: [0.0,0.0],
+                                                   origin: center,
                                                    dimensions: [dimensions[0] as f32,
                                                                 dimensions[1] as f32],
                                                    depth_range: 0.0..1.0,
