@@ -341,6 +341,13 @@ layout(set = 0, binding = 0) uniform Data {
     vec2  dimensions;
 } uniforms;
 
+vec3 hsv2rgb(vec3 c) {
+  // from https://github.com/hughsk/glsl-hsv2rgb
+  vec4 K = vec4(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
+  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
+}
+
 void main() {
     vec2 c = ((gl_FragCoord.xy * uniforms.zoom) / uniforms.dimensions) + uniforms.center ;
 
@@ -357,8 +364,7 @@ void main() {
         }
     }
 
-//TODO: interesting colors
-    f_color = vec4(i, i - 0.3, i, 1.0);
+    f_color = vec4(hsv2rgb(vec3(i + 0.6,1.0,i)), 1.0);
 }
 "]
     struct Dummy;
