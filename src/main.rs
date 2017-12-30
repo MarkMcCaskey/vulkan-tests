@@ -21,6 +21,7 @@ use vulkano::swapchain::{PresentMode, SurfaceTransform, Swapchain, AcquireError,
 use vulkano::sync::{now, GpuFuture};
 use std::mem;
 use std::sync::Arc;
+use std::collections::VecDeque;
 
 fn compute_new_center(dimensions: [u32; 2], last_mouse_location: [usize; 2], old_center: [f32; 2], zoom: f32) -> [f32; 2] {
     let new_zero_val = old_center[0] + (((((last_mouse_location[0] as f32) / (dimensions[0] as f32)) - 0.5) * 2.0) * zoom) ;
@@ -29,6 +30,15 @@ fn compute_new_center(dimensions: [u32; 2], last_mouse_location: [usize; 2], old
     let new_one = if new_one_val > 2.0 {2.0} else if new_one_val < -2.0 {-2.0} else {new_one_val};
 
     [new_zero, new_one]
+}
+
+fn weighted_sum_for_smoothing(center: [f32; 2], adjust_by_vals: [f32; 2]) -> [f32; 2] {
+    [(center[0] * 0.95) + (adjust_by_vals[0] * 0.05),
+     (center[1] * 0.95) + (adjust_by_vals[1] * 0.05)]
+}
+
+fn weighted_sum_for_smoothing_zoom(zoom: f32, new_zoom: f32) -> f32 {
+    (zoom * 0.9) + (new_zoom * 0.1)
 }
 
 fn main() {
@@ -157,22 +167,13 @@ fn main() {
                                 .unwrap());
 
     let mut framebuffers: Option<Vec<Arc<vulkano::framebuffer::Framebuffer<_, _>>>> = None;
-        /*Some(images
-             .iter()
-             .map(|image| {
-                 Arc::new(Framebuffer::start(render_pass.clone())
-                          .add(intermediary.clone())
-                          .unwrap()
-                          .add(image.clone())
-                          .unwrap()
-                          .build()
-                          .unwrap())
-             }).collect::<Vec<_>>());*/
     let mut recreate_swapchain = false;
     let mut previous_frame_end = Box::new(now(device.clone())) as Box<GpuFuture>;
     let mut zoom: f32 = 2.0;
     let mut center: [f32; 2] = [-1.5, -1.0];
     let mut last_mouse_location: [usize; 2] = [0, 0];
+    let mut adjust_center_by_vals = VecDeque::new();
+    let mut adjust_zoom_by_vals = VecDeque::new();
 
     loop {
         previous_frame_end.cleanup_finished();
@@ -217,6 +218,29 @@ fn main() {
                                         .collect::<Vec<_>>());
             mem::replace(&mut framebuffers, new_framebuffers);
         }
+
+        //TODO: refactor
+        let mut new_queue = VecDeque::new();
+        while let Some((val_to_adj_by, count)) = adjust_center_by_vals.pop_back() {
+            if count <= 0 {
+                continue;
+            }
+
+            center = weighted_sum_for_smoothing(center, val_to_adj_by);
+            new_queue.push_front((val_to_adj_by, count - 1));
+        }
+        mem::swap(&mut adjust_center_by_vals, &mut new_queue);
+
+        let mut new_queue = VecDeque::new();
+        while let Some((val_to_adj_by, count)) = adjust_zoom_by_vals.pop_back() {
+            if count <= 0 {
+                continue;
+            }
+
+            zoom = weighted_sum_for_smoothing_zoom(zoom, val_to_adj_by);
+            new_queue.push_front((val_to_adj_by, count - 1));
+        }
+        mem::swap(&mut adjust_zoom_by_vals, &mut new_queue);
 
         let uniform_buffer_subbuffer = {
             let uniform_data = fs::ty::Data {
@@ -288,14 +312,19 @@ fn main() {
                 winit::Event::WindowEvent { event: winit::WindowEvent::Closed, .. } => done = true,
                 winit::Event::WindowEvent { event: winit::WindowEvent::Resized(_, _), .. } => recreate_swapchain = true,
                 winit::Event::WindowEvent { event: winit::WindowEvent::MouseWheel {delta, ..}, ..} => {
-                    match delta {
-                        winit::MouseScrollDelta::LineDelta(f1, f2) => zoom += zoom * ((f1 - f2) / 10.0),
-                        winit::MouseScrollDelta::PixelDelta(f1, f2) => zoom += zoom * ((f1 - f2) / 10.0),
-                    };
+                    let new_zoom_amount = 
+                        match delta {
+                            winit::MouseScrollDelta::LineDelta(f1, f2) => zoom + (zoom * ((f1 - f2) / 10.0)),
+                            winit::MouseScrollDelta::PixelDelta(f1, f2) => zoom + (zoom * ((f1 - f2) / 10.0)),
+                        };
+                    zoom = weighted_sum_for_smoothing_zoom(zoom, new_zoom_amount);
+                    adjust_zoom_by_vals.push_front((new_zoom_amount, 9));
                 },
                 winit::Event::WindowEvent { event: winit::WindowEvent::MouseInput {button: winit::MouseButton::Left,
                                                                                    state: winit::ElementState::Pressed, ..}, ..} => {
-                    center = compute_new_center(dimensions, last_mouse_location, center, zoom);
+                    let new_center = compute_new_center(dimensions, last_mouse_location, center, zoom);
+                    center = weighted_sum_for_smoothing(center, new_center);
+                    adjust_center_by_vals.push_front((new_center, 19));
                 },
                 winit::Event::WindowEvent { event: winit::WindowEvent::MouseMoved { position: (x, y), .. }, ..} => {
                     last_mouse_location = [x as usize, y as usize];
