@@ -1,6 +1,7 @@
-# vulkan-tests
+# Vulkan Tests
 Doing things with vulkano
 
+This code is adapted from the Vulkano examples.
 
 ## Mandelbrot set
 
