@@ -12,7 +12,6 @@ use vulkano::command_buffer::{AutoCommandBufferBuilder, DynamicState};
 use vulkano::device::Device;
 use vulkano::image::AttachmentImage;
 use vulkano::framebuffer::{Framebuffer, Subpass};
-use vulkano::format::Format;
 use vulkano::instance::Instance;
 use vulkano::pipeline::GraphicsPipeline;
 use vulkano::pipeline::viewport::Viewport;
@@ -22,6 +21,15 @@ use vulkano::swapchain::{PresentMode, SurfaceTransform, Swapchain, AcquireError,
 use vulkano::sync::{now, GpuFuture};
 use std::mem;
 use std::sync::Arc;
+
+fn compute_new_center(dimensions: [u32; 2], last_mouse_location: [usize; 2], old_center: [f32; 2], zoom: f32) -> [f32; 2] {
+    let new_zero_val = old_center[0] + (((((last_mouse_location[0] as f32) / (dimensions[0] as f32)) - 0.5) * 2.0) * zoom) ;
+    let new_one_val = old_center[1] + (((((last_mouse_location[1] as f32) / (dimensions[1] as f32)) - 0.5) * 2.0) * zoom);
+    let new_zero = if new_zero_val > 2.0 {2.0} else if new_zero_val < -2.0 {-2.0} else {new_zero_val};
+    let new_one = if new_one_val > 2.0 {2.0} else if new_one_val < -2.0 {-2.0} else {new_one_val};
+
+    [new_zero, new_one]
+}
 
 fn main() {
     let instance = {
@@ -114,7 +122,7 @@ fn main() {
     let vs = vs::Shader::load(device.clone()).expect("failed to create shader module");
     let fs = fs::Shader::load(device.clone()).expect("failed to create shader module");
 
-    let intermediary = AttachmentImage::transient_multisampled(device.clone(), dimensions, 4, swapchain.format()).unwrap();
+    let mut intermediary = AttachmentImage::transient_multisampled(device.clone(), dimensions, 4, swapchain.format()).unwrap();
 
     let render_pass = Arc::new(single_pass_renderpass!(device.clone(),
         attachments: {
@@ -183,8 +191,11 @@ fn main() {
                 Err(err) => panic!("{:?}", err),
             };
 
+            let new_intermediary = AttachmentImage::transient_multisampled(device.clone(), dimensions, 4, swapchain.format()).unwrap();
+
             mem::replace(&mut swapchain, new_swapchain);
             mem::replace(&mut images, new_images);
+            mem::replace(&mut intermediary, new_intermediary);
 
             framebuffers = None;
 
@@ -244,7 +255,7 @@ fn main() {
                       DynamicState {
                           line_width: None,
                           viewports: Some(vec![Viewport {
-                                                   origin: [0.0, 0.0],
+                                                   origin: [0.0,0.0],
                                                    dimensions: [dimensions[0] as f32,
                                                                 dimensions[1] as f32],
                                                    depth_range: 0.0..1.0,
@@ -284,15 +295,7 @@ fn main() {
                 },
                 winit::Event::WindowEvent { event: winit::WindowEvent::MouseInput {button: winit::MouseButton::Left,
                                                                                    state: winit::ElementState::Pressed, ..}, ..} => {
-                    println!("dim: {:?}", dimensions);
-                    println!("Zoom:{} ",zoom);
-                    println!("Last mouse location: {:?}", last_mouse_location);
-                    let new_zero_val = center[0] + (((((last_mouse_location[0] as f32) / (dimensions[0] as f32)) - 0.5) * 2.0) * zoom) ;
-                    let new_one_val = center[1] + (((((last_mouse_location[1] as f32) / (dimensions[1] as f32)) - 0.5) * 2.0) * zoom);
-                    let new_zero = if new_zero_val > 2.0 {2.0} else if new_zero_val < -2.0 {-2.0} else {new_zero_val};
-                    let new_one = if new_one_val > 2.0 {2.0} else if new_one_val < -2.0 {-2.0} else {new_one_val};
-                    center = [new_zero, new_one];
-                    println!("New center: {:?}", center);
+                    center = compute_new_center(dimensions, last_mouse_location, center, zoom);
                 },
                 winit::Event::WindowEvent { event: winit::WindowEvent::MouseMoved { position: (x, y), .. }, ..} => {
                     last_mouse_location = [x as usize, y as usize];
@@ -307,6 +310,7 @@ fn main() {
 }
 
 mod vs {
+    #[allow(dead_code)]
     #[derive(VulkanoShader)]
     #[ty = "vertex"]
     #[src = "
@@ -322,6 +326,7 @@ void main() {
 }
 
 mod fs {
+    #[allow(dead_code)]
     #[derive(VulkanoShader)]
     #[ty = "fragment"]
     #[src = "
